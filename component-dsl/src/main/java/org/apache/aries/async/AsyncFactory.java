@@ -42,16 +42,9 @@ public class AsyncFactory {
                 Executors.newSingleThreadExecutor());
         }
 
-        _references = new ConcurrentHashMap<>();
-        _referenceQueue = new ReferenceQueue<>();
-        _referencesToKeys = new ConcurrentHashMap<>();
     }
 
     private final PromiseFactory[] _promiseFactories;
-    private final ReferenceQueue<Object> _referenceQueue;
-    private final ConcurrentHashMap<WeakKey, WeakReference<Async>> _references;
-    private final ConcurrentHashMap<WeakReference<?>, WeakKey>
-        _referencesToKeys;
 
     private int _size;
 
@@ -60,85 +53,7 @@ public class AsyncFactory {
     }
 
     public <T> Async<T> wrap(T t) {
-        Reference<?> ref;
-
-        while ((ref = _referenceQueue.poll()) != null) {
-            _references.remove(_referencesToKeys.remove(ref));
-        }
-
-        WeakKey weakKey = new WeakKey(t, null);
-        WeakReference<Async> weakReference = _references.get(weakKey);
-
-        if (weakReference!= null) {
-            Async async = weakReference.get();
-
-            if (async != null) {
-                return async;
-            }
-        }
-
-        WeakKey newWeakKey = new WeakKey(t, _referenceQueue);
-
-        WeakReference<Async> asyncWeakReference =
-            _references.computeIfAbsent(
-                newWeakKey,
-                key -> {
-                    key.setUsed();
-
-                    WeakReference<Async> weakRef = new WeakReference<>(
-                        new AsyncImpl<>(getPromiseFactory(t), t));
-
-                    _referencesToKeys.put(weakRef, key);
-
-                    return weakRef;
-                });
-
-        newWeakKey.clearIfNotUsed();
-
-        return asyncWeakReference.get();
-    }
-
-    private class WeakKey {
-
-        public void clearIfNotUsed() {
-            if (!_used) {
-                _weakReference.clear();
-            }
-        }
-
-        public void setUsed() {
-            _used = true;
-        }
-
-        private final int _hashCode;
-        private boolean _used;
-        private WeakReference<Object> _weakReference;
-
-        public WeakKey(Object object, ReferenceQueue<Object> referenceQueue) {
-            _hashCode = object.hashCode();
-            _weakReference = new WeakReference<>(object, referenceQueue);
-        }
-
-        @Override
-        public int hashCode() {
-            return _hashCode;
-        }
-
-        @Override
-        public boolean equals(Object other) {
-            if (other == null) {
-                return false;
-            }
-
-            Object object = _weakReference.get();
-
-            if (object == null) {
-                return false;
-            }
-
-            return object == ((WeakKey)other)._weakReference.get();
-        }
-
+        return new AsyncImpl<>(getPromiseFactory(t), t);
     }
 
     public static void main(String[] args) throws InvocationTargetException, InterruptedException {
@@ -147,28 +62,11 @@ public class AsyncFactory {
         AsyncFactory asyncFactory = new AsyncFactory(8);
 
         Async<Date> dateAsync = asyncFactory.wrap(date);
-        Async<Date> dateAsync1 = asyncFactory.wrap(date);
-
-        System.out.println(dateAsync == dateAsync1); //This should be true
-
-        Async<Date> dateAsync2 = asyncFactory.wrap((Date)date.clone());
-
-        System.out.println(dateAsync == dateAsync2); //This should be false
 
         Promise<String> stringPromise = dateAsync.invoke(Date::toString);
 
         System.out.println(stringPromise.getValue());
 
-        dateAsync = null;
-        dateAsync1 = null;
-        dateAsync2 = null;
-        date = null;
-
-        System.gc();
-
-        Async<Date> dateAsync3 = asyncFactory.wrap(new Date());
-
-        System.out.println(dateAsync3.invoke(Date::toString).getValue());
     }
 
 }
