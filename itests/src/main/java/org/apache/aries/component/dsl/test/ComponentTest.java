@@ -17,13 +17,10 @@
 
 package org.apache.aries.component.dsl.test;
 
-import org.apache.aries.component.dsl.CachingServiceReference;
 import org.apache.aries.component.dsl.OSGi;
 import org.apache.aries.component.dsl.OSGiResult;
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.apache.aries.component.dsl.builder.ComponentBuilder;
+import org.junit.*;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.FrameworkUtil;
 import org.osgi.framework.ServiceReference;
@@ -41,6 +38,7 @@ import java.util.Hashtable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import static org.apache.aries.component.dsl.OSGi.*;
@@ -71,6 +69,198 @@ public class ComponentTest {
     @AfterClass
     public static void tearDownClass() {
         _bundleContext.ungetService(_configAdminServiceReference);
+    }
+
+    @Test
+    public void testComponentBuilder() throws Exception {
+        OSGi<ServiceRegistration<Component>> program = ComponentBuilder.constructor(
+            Component::new,
+            configurations("org.components.MyComponent"),
+            services(Service.class)
+        ).optionalDependency(
+            highestService(ServiceOptional.class), Component::setOptional
+        ).optionalDependency(
+            services(ServiceForList.class), Component::addService, Component::removeService
+        ).register(
+            new HashMap<>(), Component.class
+        );
+
+        ServiceTracker<Component, Component> serviceTracker =
+                new ServiceTracker<>(_bundleContext, Component.class, null);
+
+        serviceTracker.open();
+
+        CountDownLatch countDownLatch = new CountDownLatch(1);
+
+        _bundleContext.registerService(
+                ManagedService.class, dictionary -> countDownLatch.countDown(),
+                new Hashtable<String, Object>() {{
+                    put("service.pid", "org.components.MyComponent");
+                }});
+
+        Configuration factoryConfiguration = null;
+
+        try (OSGiResult run = program.run(_bundleContext)) {
+            factoryConfiguration = _configurationAdmin.createFactoryConfiguration(
+                    "org.components.MyComponent");
+            factoryConfiguration.update(new Hashtable<>());
+
+            countDownLatch.await(10, TimeUnit.SECONDS);
+
+            assertNull(serviceTracker.getService());
+
+            ServiceRegistration<Service> serviceRegistration =
+                    _bundleContext.registerService(
+                            Service.class, new Service(), new Hashtable<>());
+
+            Component component = serviceTracker.waitForService(10 * 1000);
+
+            assertNotNull(component);
+
+            assertNull(component.getOptional());
+
+            ServiceRegistration<ServiceOptional> serviceRegistration2 =
+                    _bundleContext.registerService(
+                            ServiceOptional.class, new ServiceOptional(),
+                            new Hashtable<>());
+
+            Thread.sleep(1000L);
+
+            assertNotNull(component.getOptional());
+
+            ServiceOptional serviceOptional = new ServiceOptional();
+
+            ServiceRegistration<ServiceOptional> serviceRegistration3 =
+                    _bundleContext.registerService(
+                            ServiceOptional.class, serviceOptional,
+                            new Hashtable<String, Object>() {{
+                                put("service.ranking", 1);
+                            }});
+
+            assertEquals(serviceOptional, component.getOptional());
+
+            serviceRegistration3.unregister();
+
+            assertNotNull(component.getOptional());
+
+            serviceRegistration2.unregister();
+
+            assertNull(component.getOptional());
+
+            ServiceRegistration<ServiceForList> serviceRegistration4 =
+                    _bundleContext.registerService(
+                            ServiceForList.class, new ServiceForList(),
+                            new Hashtable<>());
+
+            ServiceRegistration<ServiceForList> serviceRegistration5 =
+                    _bundleContext.registerService(
+                            ServiceForList.class, new ServiceForList(),
+                            new Hashtable<>());
+
+            assertEquals(2, component.getServiceForLists().size());
+
+            serviceRegistration4.unregister();
+
+            assertEquals(1, component.getServiceForLists().size());
+
+            serviceRegistration5.unregister();
+
+            assertEquals(0, component.getServiceForLists().size());
+
+            serviceRegistration.unregister();
+
+            System.out.println("Unregistered dependency");
+
+            Thread.sleep(1000L);
+
+            assertNull(serviceTracker.getService());
+        }
+        catch (IOException ioe) {
+
+        }
+        catch (InterruptedException e) {
+            Assert.fail("Timeout waiting for configuration");
+        }
+        finally {
+            serviceTracker.close();
+
+            if (factoryConfiguration != null) {
+                factoryConfiguration.delete();
+            }
+        }
+    }
+
+    @Test
+    public void testDependentComponentBuilder() throws IOException, InterruptedException {
+        ComponentBuilder<DependentComponent> componentBuilder =
+            ComponentBuilder.constructor(
+                DependentComponent::new,
+                ComponentBuilder.constructor(
+                    Component::new,
+                    configurations("org.components.MyComponent"),
+                    services(Service.class)
+                ).optionalDependency(
+                    highestService(ServiceOptional.class), Component::setOptional
+                ).optionalDependency(
+                    services(ServiceForList.class), Component::addService, Component::removeService
+                ).asOSGi(
+                ),
+                highestService(AnotherService.class)
+        );
+
+        AtomicReference<DependentComponent> dependentComponent = new AtomicReference<>();
+
+        CountDownLatch countDownLatch = new CountDownLatch(1);
+
+        _bundleContext.registerService(
+                ManagedService.class, dictionary -> countDownLatch.countDown(),
+                new Hashtable<String, Object>() {{
+                    put("service.pid", "org.components.MyComponent");
+                }});
+
+        Configuration factoryConfiguration = null;
+
+        try (OSGiResult run = componentBuilder.asOSGi().run(
+                _bundleContext,
+                dc -> {
+                    dependentComponent.set(dc);
+                    return () -> dependentComponent.set(null);
+                }
+            )
+        ) {
+            factoryConfiguration = _configurationAdmin.createFactoryConfiguration(
+                    "org.components.MyComponent");
+            factoryConfiguration.update(new Hashtable<>());
+
+            countDownLatch.await(10, TimeUnit.SECONDS);
+
+            ServiceRegistration<AnotherService> anotherServiceRegistration =
+                _bundleContext.registerService(
+                    AnotherService.class, new AnotherService(), new Hashtable<>());
+
+            assertNull(dependentComponent.get());
+
+            Service service = new Service();
+
+            ServiceRegistration<Service> serviceRegistration =
+                _bundleContext.registerService(
+                    Service.class, service, new Hashtable<>());
+
+            assertNotNull(dependentComponent.get());
+
+            assertEquals(
+                service,
+                dependentComponent.get().getComponent().getMandatory());
+
+            anotherServiceRegistration.unregister();
+
+            assertNull(dependentComponent.get());
+
+            serviceRegistration.unregister();
+
+            assertNull(dependentComponent.get());
+        }
+
     }
 
     @Test
@@ -331,15 +521,7 @@ public class ComponentTest {
     }
 
     private static <T> OSGi<T> highestService(Class<T> clazz) {
-        return
-            highest(
-                serviceReferences(clazz)).map(
-                    CachingServiceReference::getServiceReference).
-                flatMap(sr ->
-            bundleContext().flatMap(bc ->
-            onClose(() -> bc.ungetService(sr)).then(
-            just(bc.getService(sr))
-            )));
+        return service(highest(serviceReferences(clazz)));
     }
 
     public static <T> OSGi<Void> dynamic(
@@ -392,7 +574,23 @@ public class ComponentTest {
 
     }
 
+    private class DependentComponent {
+        private Component _component;
+        private AnotherService _anotherService;
+
+        public DependentComponent(Component component, AnotherService anotherService) {
+            _component = component;
+            _anotherService = anotherService;
+        }
+
+        public Component getComponent() {
+            return _component;
+        }
+    }
+
     private class Service {}
+
+    private class AnotherService {}
 
     private class ServiceOptional {}
 
