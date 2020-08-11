@@ -25,6 +25,7 @@ import org.osgi.framework.ServiceRegistration;
 
 import java.util.*;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -38,18 +39,27 @@ public class ComponentBuilder<T> {
     private final OSGi<T> initializer;
     private final List<Function<OSGi<T>, OSGi<T>>> mandatory;
     private final List<Function<OSGi<T>, OSGi<Void>>> optional;
+    private Consumer<T> postConstruct;
+    private Consumer<T> preDestroy;
 
     private ComponentBuilder(OSGi<T> initializer) {
-        this(initializer, Collections.emptyList(), Collections.emptyList());
+        this(
+            initializer, Collections.emptyList(),
+            Collections.emptyList(), __ -> {}, __ -> {}
+        );
     }
 
     private ComponentBuilder(
         OSGi<T> initializer, List<Function<OSGi<T>, OSGi<T>>> mandatory,
-        List<Function<OSGi<T>, OSGi<Void>>> optional) {
+        List<Function<OSGi<T>, OSGi<Void>>> optional,
+        Consumer<T> postConstruct,
+        Consumer<T> preDestroy) {
 
         this.initializer = initializer;
         this.mandatory = mandatory;
         this.optional = optional;
+        this.postConstruct = postConstruct;
+        this.preDestroy = preDestroy;
     }
 
     public <S> ComponentBuilder<T> optionalDependency(OSGi<S> s, BiConsumer<T, S> setter) {
@@ -62,7 +72,7 @@ public class ComponentBuilder<T> {
             )
         );
 
-        return new ComponentBuilder<>(initializer, mandatory, list);
+        return new ComponentBuilder<>(initializer, mandatory, list, postConstruct, preDestroy);
     }
 
     public <S> ComponentBuilder<T> optionalDependency(OSGi<S> s, BiConsumer<T, S> setter, BiConsumer<T, S> unsetter) {
@@ -75,7 +85,7 @@ public class ComponentBuilder<T> {
             )
         );
 
-        return new ComponentBuilder<>(initializer, mandatory, list);
+        return new ComponentBuilder<>(initializer, mandatory, list, postConstruct, preDestroy);
     }
 
     public <S> ComponentBuilder<T> optionalDependency(
@@ -95,9 +105,7 @@ public class ComponentBuilder<T> {
             )
         );
         return new ComponentBuilder<>(
-            initializer,
-            mandatory,
-            list);
+            initializer, mandatory, list, postConstruct, preDestroy);
     }
 
     public <S> ComponentBuilder<T> mandatoryDependency(OSGi<S> s, BiConsumer<T, S> setter) {
@@ -111,7 +119,7 @@ public class ComponentBuilder<T> {
             )
         );
 
-        return new ComponentBuilder<>(initializer, list, optional);
+        return new ComponentBuilder<>(initializer, list, optional, postConstruct, preDestroy);
     }
 
     public <S> ComponentBuilder<T> mandatoryDependency(OSGi<S> s, BiConsumer<T, S> setter, BiConsumer<T, S> unsetter) {
@@ -125,7 +133,7 @@ public class ComponentBuilder<T> {
             )
         );
 
-        return new ComponentBuilder<>(initializer, list, optional);
+        return new ComponentBuilder<>(initializer, list, optional, postConstruct, preDestroy);
     }
 
     public <S> ComponentBuilder<T> mandatoryDependency(
@@ -144,9 +152,29 @@ public class ComponentBuilder<T> {
                 o
             )
         );
-        return new ComponentBuilder<>(initializer, list, optional);
+
+        return new ComponentBuilder<>(initializer, list, optional, postConstruct, preDestroy);
     }
 
+    public ComponentBuilder<T> postConstruct(Consumer<T> postConstruct) {
+        return new ComponentBuilder<>(
+            initializer,
+            mandatory,
+            optional,
+            this.postConstruct.andThen(postConstruct),
+            preDestroy
+        );
+    }
+
+    public ComponentBuilder<T> predestroy(Consumer<T> preDestroy) {
+        return new ComponentBuilder<>(
+            initializer,
+            mandatory,
+            optional,
+            postConstruct,
+            this.preDestroy.andThen(preDestroy)
+        );
+    }
 
     private static class TS<T,S> {
         T t;
@@ -184,6 +212,8 @@ public class ComponentBuilder<T> {
                 p -> o.apply(p).then(nothing())
             );
         }
+
+        program = program.effects(this.postConstruct, this.preDestroy);
 
         return program;
     }

@@ -43,9 +43,7 @@ import java.util.function.Consumer;
 
 import static org.apache.aries.component.dsl.OSGi.*;
 import static org.apache.aries.component.dsl.Utils.highest;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
+import static org.junit.Assert.*;
 
 /**
  * @author Carlos Sierra Andrés
@@ -105,7 +103,7 @@ public class ComponentTest {
                     "org.components.MyComponent");
             factoryConfiguration.update(new Hashtable<>());
 
-            countDownLatch.await(10, TimeUnit.SECONDS);
+            countDownLatch.await(20, TimeUnit.SECONDS);
 
             assertNull(serviceTracker.getService());
 
@@ -168,8 +166,6 @@ public class ComponentTest {
             assertEquals(0, component.getServiceForLists().size());
 
             serviceRegistration.unregister();
-
-            System.out.println("Unregistered dependency");
 
             Thread.sleep(1000L);
 
@@ -261,6 +257,53 @@ public class ComponentTest {
             assertNull(dependentComponent.get());
         }
 
+    }
+
+    @Test
+    public void testComponentBuilderMandatoryDependenciesAndPostConstructAndPredestroy() {
+        ComponentBuilder<BeanComponent> componentBuilder =
+            ComponentBuilder.constructor(
+                BeanComponent::new
+            ).mandatoryDependency(
+                highestService(Service.class), BeanComponent::setService
+            ).postConstruct(
+                BeanComponent::init
+            ).predestroy(
+                BeanComponent::destroy
+            );
+
+        AtomicReference<BeanComponent> beanComponentAtomicReference =
+            new AtomicReference<>();
+
+        try (OSGiResult run = componentBuilder.asOSGi(
+             ).effects(
+                beanComponentAtomicReference::set,
+                __ -> beanComponentAtomicReference.set(null)
+             ).run(
+                 _bundleContext
+             )
+        ) {
+
+            assertNull(beanComponentAtomicReference.get());
+
+            ServiceRegistration<Service> serviceRegistration =
+                _bundleContext.registerService(
+                    Service.class, new Service(), new Hashtable<>());
+
+            assertNotNull(beanComponentAtomicReference.get());
+
+            BeanComponent beanComponent = beanComponentAtomicReference.get();
+
+            assertTrue(beanComponent.isInitialized());
+            assertFalse(beanComponent.isDestroyed());
+
+            serviceRegistration.unregister();
+
+            assertTrue(beanComponent.isInitialized());
+            assertTrue(beanComponent.isDestroyed());
+
+            assertNull(beanComponentAtomicReference.get());
+        }
     }
 
     @Test
@@ -586,6 +629,32 @@ public class ComponentTest {
         public Component getComponent() {
             return _component;
         }
+    }
+
+    private class BeanComponent {
+
+        private boolean _init;
+        private boolean _destroyed;
+
+        public void setService(Service service) {
+        }
+
+        public void init() {
+            _init = true;
+        }
+
+        public void destroy() {
+            _destroyed = true;
+        }
+
+        public boolean isInitialized() {
+            return _init;
+        }
+
+        public boolean isDestroyed() {
+            return _destroyed;
+        }
+
     }
 
     private class Service {}
