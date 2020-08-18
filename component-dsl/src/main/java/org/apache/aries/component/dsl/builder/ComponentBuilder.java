@@ -39,8 +39,8 @@ public class ComponentBuilder<T> {
     private final OSGi<T> initializer;
     private final List<Function<OSGi<T>, OSGi<T>>> mandatory;
     private final List<Function<OSGi<T>, OSGi<Void>>> optional;
-    private Consumer<T> postConstruct;
-    private Consumer<T> preDestroy;
+    private final Consumer<T> postConstruct;
+    private final Consumer<T> preDestroy;
 
     private ComponentBuilder(OSGi<T> initializer) {
         this(
@@ -184,11 +184,6 @@ public class ComponentBuilder<T> {
             this.t = t;
             this.s = s;
         }
-    }
-
-    public <K> OSGi<ServiceRegistration<K>> register(Map<String, ?> properties, Class<K> interf) {
-        return asOSGi().flatMap(t ->
-                OSGi.register((Class)interf, t, (Map<String, Object>) properties));
     }
 
     public OSGi<ServiceRegistration<?>> register(Map<String, ?> properties, Class<?> ... interfaces) {

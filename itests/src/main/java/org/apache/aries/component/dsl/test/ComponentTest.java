@@ -19,6 +19,7 @@ package org.apache.aries.component.dsl.test;
 
 import org.apache.aries.component.dsl.OSGi;
 import org.apache.aries.component.dsl.OSGiResult;
+import org.apache.aries.component.dsl.Utils;
 import org.apache.aries.component.dsl.builder.ComponentBuilder;
 import org.junit.*;
 import org.osgi.framework.BundleContext;
@@ -43,6 +44,7 @@ import java.util.function.Consumer;
 
 import static org.apache.aries.component.dsl.OSGi.*;
 import static org.apache.aries.component.dsl.Utils.highest;
+import static org.apache.aries.component.dsl.builder.ComponentBuilderFactory.component;
 import static org.junit.Assert.*;
 
 /**
@@ -79,8 +81,9 @@ public class ComponentTest {
             highestService(ServiceOptional.class), Component::setOptional
         ).optionalDependency(
             services(ServiceForList.class), Component::addService, Component::removeService
-        ).register(
-            new HashMap<>(), Component.class
+        ).asOSGi(
+        ).flatMap(
+            c -> register(Component.class, c, new HashMap<>())
         );
 
         ServiceTracker<Component, Component> serviceTracker =
@@ -561,6 +564,36 @@ public class ComponentTest {
                 factoryConfiguration.delete();
             }
         }
+    }
+
+    @Test
+    public void testComponentFactory() {
+        OSGi<Service> serviceComponent = component(
+            Service.class,
+            (configuration, referenceBuilder) ->
+                ComponentBuilder.constructor(
+                    Service::new
+                ).optionalDependency(
+                    referenceBuilder.createReference(ServiceOptional.class),
+                    (__, ___) -> {}
+                )
+        );
+
+        OSGi<Component> component = component(
+            Component.class,
+            (configuration, referenceBuilder) ->
+                ComponentBuilder.constructor(
+                    Component::new, just(configuration), serviceComponent
+                ).optionalDependency(
+                    referenceBuilder.createReference(ServiceOptional.class, Utils::highest),
+                    Component::setOptional
+                )
+        );
+
+        try (OSGiResult run = component.run(_bundleContext)) {
+
+        }
+
     }
 
     private static <T> OSGi<T> highestService(Class<T> clazz) {
