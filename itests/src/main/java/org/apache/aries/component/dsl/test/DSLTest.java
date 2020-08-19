@@ -17,11 +17,7 @@
 
 package org.apache.aries.component.dsl.test;
 
-import org.apache.aries.component.dsl.CachingServiceReference;
-import org.apache.aries.component.dsl.OSGi;
-import org.apache.aries.component.dsl.OSGiResult;
-import org.apache.aries.component.dsl.Publisher;
-import org.apache.aries.component.dsl.Utils;
+import org.apache.aries.component.dsl.*;
 import org.apache.aries.component.dsl.internal.ProbeImpl;
 import org.junit.Test;
 import org.osgi.framework.BundleContext;
@@ -261,6 +257,46 @@ public class DSLTest {
         assertFalse(list.contains(15));
 
         run.close();
+    }
+
+    @Test
+    public void testReadyService() {
+        String[] interfaces = new String[] {"one", "two", "three"};
+
+        final OSGi<ServiceReference<Object>> all = all(
+            Arrays.stream(
+                interfaces
+            ).map(
+                OSGi::serviceReferences
+            ).map(
+                OSGi::once
+            ).toArray(
+                OSGi[]::new
+            )
+        );
+
+        all.splitBy(
+            sr -> just(sr.getProperty("property")),
+            (prop, p) -> p.transform(
+                pipe -> {
+                    final AtomicInteger atomicInteger = new AtomicInteger(interfaces.length);
+                    final AtomicReference<Runnable> terminator = new AtomicReference<>();
+
+                    return t -> {
+                        if (atomicInteger.decrementAndGet() == 0) {
+                            terminator.set(pipe.publish(null));
+                        }
+                        return () -> {
+                            if (atomicInteger.getAndIncrement() == 0) {
+                                terminator.getAndSet(NOOP).run();
+                            }
+                        };
+                    };
+                }
+            ).flatMap(
+                __ -> register
+            )
+        );
     }
 
     @Test
