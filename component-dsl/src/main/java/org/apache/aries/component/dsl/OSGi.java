@@ -29,14 +29,7 @@ import org.apache.aries.component.dsl.function.Function4;
 import org.apache.aries.component.dsl.function.Function6;
 import org.apache.aries.component.dsl.function.Function8;
 import org.apache.aries.component.dsl.function.Function9;
-import org.apache.aries.component.dsl.internal.CoalesceOSGiImpl;
-import org.apache.aries.component.dsl.internal.ConfigurationOSGiImpl;
-import org.apache.aries.component.dsl.internal.DistributeOSGiImpl;
-import org.apache.aries.component.dsl.internal.EffectsOSGi;
-import org.apache.aries.component.dsl.internal.NothingOSGiImpl;
-import org.apache.aries.component.dsl.internal.Pad;
-import org.apache.aries.component.dsl.internal.ServiceReferenceOSGi;
-import org.apache.aries.component.dsl.internal.ServiceRegistrationOSGiImpl;
+import org.apache.aries.component.dsl.internal.*;
 import org.apache.aries.component.dsl.function.Function11;
 import org.apache.aries.component.dsl.function.Function12;
 import org.apache.aries.component.dsl.function.Function13;
@@ -51,16 +44,6 @@ import org.apache.aries.component.dsl.function.Function26;
 import org.apache.aries.component.dsl.function.Function3;
 import org.apache.aries.component.dsl.function.Function5;
 import org.apache.aries.component.dsl.function.Function7;
-import org.apache.aries.component.dsl.internal.BundleContextOSGiImpl;
-import org.apache.aries.component.dsl.internal.BundleOSGi;
-import org.apache.aries.component.dsl.internal.ChangeContextOSGiImpl;
-import org.apache.aries.component.dsl.internal.ConcurrentDoublyLinkedList;
-import org.apache.aries.component.dsl.internal.ConfigurationsOSGiImpl;
-import org.apache.aries.component.dsl.internal.AllOSGi;
-import org.apache.aries.component.dsl.internal.IgnoreImpl;
-import org.apache.aries.component.dsl.internal.JustOSGiImpl;
-import org.apache.aries.component.dsl.internal.OSGiImpl;
-import org.apache.aries.component.dsl.internal.UpdateSupport;
 import org.osgi.framework.Bundle;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.ServiceFactory;
@@ -71,11 +54,7 @@ import org.osgi.framework.ServiceRegistration;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.BiFunction;
-import java.util.function.Consumer;
-import java.util.function.Function;
-import java.util.function.Predicate;
-import java.util.function.Supplier;
+import java.util.function.*;
 import java.util.stream.Collectors;
 
 /**
@@ -457,6 +436,46 @@ public interface OSGi<T> extends OSGiRunnable<T> {
 		Refresher<? super CachingServiceReference<Object>> onModified) {
 
 		return new ServiceReferenceOSGi<>(filterString, null, onModified);
+	}
+
+	static <T, S> OSGi<StateTuple<T, S>> serviceReferences(
+		Class<T> clazz,
+		Function<CachingServiceReference<T>, OSGi<S>> stateFunction,
+		BiConsumer<CachingServiceReference<T>, S> onUpdate) {
+
+		return new UpdatableServiceReferenceOSGi<>(
+			null, clazz, __ -> false, stateFunction, onUpdate);
+	}
+
+
+	static <T, S> OSGi<StateTuple<T, S>> serviceReferences(
+		Class<T> clazz,
+		Refresher<? super CachingServiceReference<T>> refresher,
+		Function<CachingServiceReference<T>, OSGi<S>> stateFunction,
+		BiConsumer<CachingServiceReference<T>, S> onUpdate) {
+
+		return new UpdatableServiceReferenceOSGi<>(
+			null, clazz, refresher, stateFunction, onUpdate);
+	}
+
+	static <T, S> OSGi<StateTuple<T, S>> serviceReferences(
+		Class<T> clazz, String filter,
+		Refresher<? super CachingServiceReference<T>> refresher,
+		Function<CachingServiceReference<T>, OSGi<S>> stateFunction,
+		BiConsumer<CachingServiceReference<T>, S> onUpdate) {
+
+		return new UpdatableServiceReferenceOSGi<>(
+			filter, clazz, refresher, stateFunction, onUpdate);
+	}
+
+	static <S> OSGi<StateTuple<Object, S>> serviceReferences(
+		String filter,
+		Refresher<? super CachingServiceReference<Object>> refresher,
+		Function<CachingServiceReference<Object>, OSGi<S>> stateFunction,
+		BiConsumer<CachingServiceReference<Object>, S> onUpdate) {
+
+		return new UpdatableServiceReferenceOSGi<>(
+			filter, null, refresher, stateFunction, onUpdate);
 	}
 
 	static <T> OSGi<T> services(Class<T> clazz) {

@@ -17,12 +17,10 @@
 
 package org.apache.aries.component.dsl.test;
 
-import org.apache.aries.component.dsl.CachingServiceReference;
-import org.apache.aries.component.dsl.OSGi;
-import org.apache.aries.component.dsl.OSGiResult;
-import org.apache.aries.component.dsl.Publisher;
-import org.apache.aries.component.dsl.Utils;
+import org.apache.aries.component.dsl.*;
 import org.apache.aries.component.dsl.internal.ProbeImpl;
+import org.apache.aries.component.dsl.internal.UpdatableServiceReferenceOSGi;
+import org.apache.aries.component.dsl.internal.UpdateSupport;
 import org.junit.Test;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.FrameworkUtil;
@@ -35,21 +33,14 @@ import org.osgi.service.cm.ManagedService;
 import org.osgi.util.tracker.ServiceTracker;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.Dictionary;
-import java.util.HashMap;
-import java.util.Hashtable;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiConsumer;
+import java.util.function.Function;
 
 import static org.apache.aries.component.dsl.OSGi.*;
 import static org.apache.aries.component.dsl.Utils.accumulate;
@@ -1448,6 +1439,113 @@ public class DSLTest {
         finally {
             serviceRegistration.unregister();
         }
+    }
+
+    @Test
+    public void testServiceReferenceRefresherWithUpdateSupport() {
+        final AtomicReference<StateTuple<?, Service>> addedService = new AtomicReference<>();
+        final AtomicReference<CachingServiceReference<?>> updatedService = new AtomicReference<>();
+
+        ServiceRegistration<Service> serviceRegistration =
+            bundleContext.registerService(
+                Service.class, new Service(),
+                new Hashtable<String, Object>() {{
+                    put("refresh", 0);
+                    put("filter", 0);
+                }});
+
+        try (
+            OSGiResult result = serviceReferences(
+            Service.class, csr -> csr.isDirty("refresh"),
+            sr -> just(sr).filter(sr2 -> sr2.getProperty("filter").equals(1)).flatMap(OSGi::service),
+            (csr, state) -> updatedService.set(csr)
+        ).effects(
+            addedService::set,
+            state -> addedService.set(null)
+        ).run(
+            bundleContext
+        )) {
+            assertNull(addedService.get());
+            assertNull(updatedService.get());
+
+            serviceRegistration.setProperties(
+                new Hashtable<String, Object>() {{
+                    put("refresh", 0);
+                    put("filter", 1);
+                }});
+
+            assertNotNull(addedService.get());
+            assertNull(updatedService.get());
+
+            serviceRegistration.setProperties(
+                new Hashtable<String, Object>() {{
+                    put("refresh", 0);
+                    put("filter", 0);
+                }}
+            );
+
+            assertNotNull(addedService.get());
+            assertNotNull(updatedService.get());
+            assertEquals(addedService.get().cachingServiceReference.getProperty("filter"), 1);
+            assertEquals(updatedService.get().getProperty("filter"), 0);
+            assertEquals(addedService.get().cachingServiceReference.getProperty("refresh"), 0);
+            assertEquals(updatedService.get().getProperty("refresh"), 0);
+
+            serviceRegistration.setProperties(
+                new Hashtable<String, Object>() {{
+                    put("refresh", 1);
+                    put("filter", 1);
+                }}
+            );
+
+            assertNotNull(addedService.get());
+            assertNotNull(updatedService.get());
+            assertEquals(addedService.get().cachingServiceReference.getProperty("refresh"), 1);
+            assertEquals(updatedService.get().getProperty("refresh"), 0);
+
+            serviceRegistration.setProperties(
+                new Hashtable<String, Object>() {{
+                    put("refresh", 2);
+                    put("filter", 0);
+                }}
+            );
+
+            assertNull(addedService.get());
+            assertNotNull(updatedService.get());
+            assertEquals(updatedService.get().getProperty("refresh"), 0);
+
+            serviceRegistration.setProperties(
+                new Hashtable<String, Object>() {{
+                    put("refresh", 3);
+                    put("filter", 1);
+                }}
+            );
+
+            assertNotNull(addedService.get());
+            assertNotNull(updatedService.get());
+            assertEquals(addedService.get().cachingServiceReference.getProperty("refresh"), 3);
+            assertEquals(updatedService.get().getProperty("refresh"), 0);
+
+            serviceRegistration.setProperties(
+                new Hashtable<String, Object>() {{
+                    put("refresh", 3);
+                    put("filter", 2);
+                }}
+            );
+
+            assertNotNull(addedService.get());
+            assertNotNull(updatedService.get());
+            assertEquals(addedService.get().cachingServiceReference.getProperty("refresh"), 3);
+            assertEquals(addedService.get().cachingServiceReference.getProperty("filter"), 1);
+            assertEquals(updatedService.get().getProperty("refresh"), 3);
+            assertEquals(updatedService.get().getProperty("filter"), 2);
+        }
+        finally {
+            serviceRegistration.unregister();
+        }
+
+        assertNull(addedService.get());
+        assertNotNull(updatedService.get());
     }
 
     @Test
