@@ -17,12 +17,15 @@
 
 package org.apache.aries.component.dsl.internal;
 
+import org.apache.aries.component.dsl.OSGiResult;
 import org.apache.aries.component.dsl.Refresher;
 import org.apache.aries.component.dsl.CachingServiceReference;
 import org.apache.aries.component.dsl.Publisher;
 import org.osgi.framework.ServiceReference;
 import org.osgi.util.tracker.ServiceTracker;
 import org.osgi.util.tracker.ServiceTrackerCustomizer;
+
+import java.util.Arrays;
 
 /**
  * @author Carlos Sierra Andrés
@@ -41,7 +44,7 @@ public class ServiceReferenceOSGi<T>
 		Refresher<? super CachingServiceReference<T>> refresher) {
 
 		super((bundleContext, op) -> {
-			ServiceTracker<T, ?>
+			ServiceTracker<T, Tracked<T>>
 				serviceTracker = new ServiceTracker<>(
 					bundleContext,
 					buildFilter(bundleContext, filterString, clazz),
@@ -49,7 +52,13 @@ public class ServiceReferenceOSGi<T>
 
 			serviceTracker.open();
 
-			return new OSGiResultImpl(serviceTracker::close);
+			return new OSGiResultImpl(
+				serviceTracker::close,
+				() -> Arrays.stream(serviceTracker.getServices()).map(
+					Tracked.class::cast
+				).forEach(
+					t -> t.result.update()
+				));
 		});
 	}
 
@@ -80,12 +89,15 @@ public class ServiceReferenceOSGi<T>
 
 			if (_refresher.test(tracked.cachingServiceReference)) {
 				UpdateSupport.runUpdate(() -> {
-					tracked.runnable.run();
+					tracked.result.run();
 					tracked.cachingServiceReference = new CachingServiceReference<>(
 						reference);
-					tracked.runnable =
+					tracked.result =
 						_addedSource.apply(tracked.cachingServiceReference);
 				});
+			}
+			else {
+				tracked.result.update();
 			}
 		}
 
@@ -93,7 +105,7 @@ public class ServiceReferenceOSGi<T>
 		public void removedService(
 			ServiceReference<T> reference, Tracked<T> tracked) {
 
-			tracked.runnable.run();
+			tracked.result.run();
 		}
 
 		private final Publisher<? super CachingServiceReference<T>> _addedSource;
@@ -105,14 +117,14 @@ public class ServiceReferenceOSGi<T>
 
 		public Tracked(
 			CachingServiceReference<T> cachingServiceReference,
-			Runnable runnable) {
+			OSGiResult result) {
 
 			this.cachingServiceReference = cachingServiceReference;
-			this.runnable = runnable;
+			this.result = result;
 		}
 
 		volatile CachingServiceReference<T> cachingServiceReference;
-		volatile Runnable runnable;
+		volatile OSGiResult result;
 
 	}
 }

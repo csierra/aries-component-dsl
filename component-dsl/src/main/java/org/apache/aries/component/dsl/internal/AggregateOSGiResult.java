@@ -15,20 +15,40 @@
  * limitations under the License.
  */
 
-package org.apache.aries.component.dsl;
+package org.apache.aries.component.dsl.internal;
 
-import org.apache.aries.component.dsl.internal.OSGiResultImpl;
-import org.osgi.framework.BundleContext;
+import org.apache.aries.component.dsl.OSGiResult;
+
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * @author Carlos Sierra Andrés
  */
-public interface OSGiRunnable<T> {
+public class AggregateOSGiResult implements OSGiResult {
 
-	default OSGiResult run(BundleContext bundleContext) {
-		return run(bundleContext, (__) -> new OSGiResultImpl(() -> {}, () -> {}));
+	private OSGiResult[] results;
+
+	public AggregateOSGiResult(OSGiResult ... results) {
+		this.results = results;
 	}
 
-	OSGiResult run(BundleContext bundleContext, Publisher<? super T> andThen);
+	@Override
+	public void close() {
+		if (_closed.compareAndSet(false, true)) {
+			for (OSGiResult result : results) {
+				result.close();
+			}
+		}
+	}
 
+	@Override
+	public void update() {
+		if (!_closed.get()) {
+			for (OSGiResult result : results) {
+				result.update();
+			}
+		}
+	}
+
+	private final AtomicBoolean _closed = new AtomicBoolean();
 }

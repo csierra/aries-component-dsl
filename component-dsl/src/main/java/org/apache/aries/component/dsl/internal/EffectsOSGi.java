@@ -26,7 +26,8 @@ public class EffectsOSGi extends OSGiImpl<Void> {
 
     public EffectsOSGi(
         Runnable onAddingBefore, Runnable onAddingAfter,
-        Runnable onRemovingBefore, Runnable onRemovingAfter) {
+        Runnable onRemovingBefore, Runnable onRemovingAfter,
+        Runnable onUpdate) {
 
         super((bundleContext, op) -> {
             onAddingBefore.run();
@@ -34,28 +35,38 @@ public class EffectsOSGi extends OSGiImpl<Void> {
             try {
                 Runnable terminator = op.publish(null);
 
-                OSGiResult result = () -> {
-                    try {
-                        onRemovingBefore.run();
-                    }
-                    catch (Exception e) {
-                        //TODO: logging
-                    }
+                OSGiResult result = new OSGiResultImpl(
+                    () -> {
+                        try {
+                            onRemovingBefore.run();
+                        }
+                        catch (Exception e) {
+                            //TODO: logging
+                        }
 
-                    try {
-                        terminator.run();
-                    }
-                    catch (Exception e) {
-                        //TODO: logging
-                    }
+                        try {
+                            terminator.run();
+                        }
+                        catch (Exception e) {
+                            //TODO: logging
+                        }
 
-                    try {
-                        onRemovingAfter.run();
+                        try {
+                            onRemovingAfter.run();
+                        }
+                        catch (Exception e) {
+                            //TODO: logging
+                        }
+                    },
+                    () -> {
+                        try {
+                            onUpdate.run();
+                        }
+                        catch (Exception e) {
+                            //TODO: logging
+                        }
                     }
-                    catch (Exception e) {
-                        //TODO: logging
-                    }
-                };
+                );
 
                 try {
                     onAddingAfter.run();
@@ -66,7 +77,7 @@ public class EffectsOSGi extends OSGiImpl<Void> {
                     throw e;
                 }
 
-                return new OSGiResultImpl(result);
+                return result;
             }
             catch (Exception e) {
                 try {

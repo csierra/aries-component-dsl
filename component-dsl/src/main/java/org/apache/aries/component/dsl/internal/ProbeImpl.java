@@ -37,7 +37,7 @@ public class ProbeImpl<T> extends OSGiImpl<T> {
 
     private static class ProbeOperationImpl<T> implements OSGiRunnable<T> {
 
-        private OSGiResult _onClose = NOOP;
+        private OSGiResult result = NOOP;
 
         @Override
         public OSGiResultImpl run(
@@ -46,7 +46,12 @@ public class ProbeImpl<T> extends OSGiImpl<T> {
             _op = op;
 
             return new OSGiResultImpl(
-                () -> {_onClose.close(); _onClose = NOOP;});
+                () -> {
+                    result.close();
+                    result = NOOP;
+                },
+                () -> result.update()
+            );
         }
 
         BundleContext _bundleContext;
@@ -55,6 +60,6 @@ public class ProbeImpl<T> extends OSGiImpl<T> {
     }
 
     public void onClose(OSGiResult onClose) {
-        ((ProbeOperationImpl<T>) _operation)._onClose = onClose;
+        ((ProbeOperationImpl<T>) _operation).result = onClose;
     }
 }

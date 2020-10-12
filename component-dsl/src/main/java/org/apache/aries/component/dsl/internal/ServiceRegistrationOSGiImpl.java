@@ -98,7 +98,8 @@ public class ServiceRegistrationOSGiImpl<T>
                 finally {
                     terminator.run();
                 }
-            });
+            },
+			terminator::run);
 	}
 
 }

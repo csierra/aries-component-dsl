@@ -71,35 +71,40 @@ public class HighestRankingOSGi<T> extends OSGiImpl<T> {
                         }
                     }
 
-                    return () -> {
-                        synchronized (set) {
-                            Tuple<T> old = set.peek();
+                    return new OSGiResultImpl(
+                        () -> {
+                            synchronized (set) {
+                                Tuple<T> old = set.peek();
 
-                            set.remove(tuple);
+                                set.remove(tuple);
 
-                            Tuple<T> current = set.peek();
+                                Tuple<T> current = set.peek();
 
-                            tuple._runnable.run();
+                                tuple._runnable.run();
 
-                            if (current != old && current != null) {
-                                current._runnable.run();
-                                current._runnable = highestPipe.apply(
-                                    current._t);
-                                sent.set(current);
+                                if (current != old && current != null) {
+                                    current._runnable.run();
+                                    current._runnable = highestPipe.apply(
+                                        current._t);
+                                    sent.set(current);
+                                }
+                                if (current == null) {
+                                    sent.set(null);
+                                }
                             }
-                            if (current == null) {
-                                sent.set(null);
+                        },
+                        () -> {
+                            synchronized (set) {
+                                final Tuple<T> current = set.peek();
+                                if (current != null) {
+                                    current._runnable.update();
+                                }
                             }
-                        }
-                    };
+                        });
                 });
 
-            return new OSGiResultImpl(
-                () -> {
-                    result.close();
+            return new AggregateOSGiResult(result, notHighestPad);
 
-                    notHighestPad.close();
-                });
         });
     }
 
@@ -113,7 +118,7 @@ public class HighestRankingOSGi<T> extends OSGiImpl<T> {
             return _t;
         }
         T _t;
-        Runnable _runnable;
+        OSGiResult _runnable;
 
     }
 

@@ -17,6 +17,7 @@
 
 package org.apache.aries.component.dsl.internal;
 
+import org.apache.aries.component.dsl.OSGiResult;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.ServiceReference;
 import org.osgi.framework.ServiceRegistration;
@@ -44,7 +45,7 @@ public class ConfigurationsOSGiImpl extends OSGiImpl<Dictionary<String, ?>> {
 			ConcurrentHashMap<String, Configuration> configurations =
 				new ConcurrentHashMap<>();
 
-			ConcurrentHashMap<String, Runnable> terminators =
+			ConcurrentHashMap<String, OSGiResult> terminators =
 				new ConcurrentHashMap<>();
 
 			AtomicBoolean closed = new AtomicBoolean();
@@ -148,7 +149,8 @@ public class ConfigurationsOSGiImpl extends OSGiImpl<Dictionary<String, ?>> {
 							runnable.run();
 						}
 					}
-				});
+				},
+				() -> terminators.values().forEach(OSGiResult::update));
 		});
 	}
 
@@ -218,9 +220,9 @@ public class ConfigurationsOSGiImpl extends OSGiImpl<Dictionary<String, ?>> {
 	}
 
 	private static void signalLeave(
-		String factoryPid, ConcurrentHashMap<String, Runnable> terminators) {
+		String factoryPid, ConcurrentHashMap<String, OSGiResult> terminators) {
 
-		Runnable runnable = terminators.remove(factoryPid);
+		OSGiResult runnable = terminators.remove(factoryPid);
 
 		if (runnable != null) {
 			runnable.run();

@@ -26,18 +26,32 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class OSGiResultImpl implements OSGiResult {
 
-	public OSGiResultImpl(OSGiResult close) {
-		this.close = close;
+	public OSGiResultImpl(OSGiResult result) {
+		this.onClose = result::close;
+		this.onUpdate = result::update;
+	}
+
+	public OSGiResultImpl(Runnable onClose, Runnable onUpdate) {
+		this.onClose = onClose;
+		this.onUpdate = onUpdate;
 	}
 
 	@Override
 	public void close() {
 		if (_closed.compareAndSet(false, true)) {
-			close.run();
+			onClose.run();
 		}
 	}
 
-	private final Runnable close;
-	private AtomicBoolean _closed = new AtomicBoolean();
+	@Override
+	public void update() {
+		if (!_closed.get()) {
+			onUpdate.run();
+		}
+	}
+
+	private final Runnable onClose;
+	private final Runnable onUpdate;
+	private final AtomicBoolean _closed = new AtomicBoolean();
 
 }

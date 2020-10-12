@@ -29,14 +29,7 @@ import org.apache.aries.component.dsl.function.Function4;
 import org.apache.aries.component.dsl.function.Function6;
 import org.apache.aries.component.dsl.function.Function8;
 import org.apache.aries.component.dsl.function.Function9;
-import org.apache.aries.component.dsl.internal.CoalesceOSGiImpl;
-import org.apache.aries.component.dsl.internal.ConfigurationOSGiImpl;
-import org.apache.aries.component.dsl.internal.DistributeOSGiImpl;
-import org.apache.aries.component.dsl.internal.EffectsOSGi;
-import org.apache.aries.component.dsl.internal.NothingOSGiImpl;
-import org.apache.aries.component.dsl.internal.Pad;
-import org.apache.aries.component.dsl.internal.ServiceReferenceOSGi;
-import org.apache.aries.component.dsl.internal.ServiceRegistrationOSGiImpl;
+import org.apache.aries.component.dsl.internal.*;
 import org.apache.aries.component.dsl.function.Function11;
 import org.apache.aries.component.dsl.function.Function12;
 import org.apache.aries.component.dsl.function.Function13;
@@ -51,16 +44,6 @@ import org.apache.aries.component.dsl.function.Function26;
 import org.apache.aries.component.dsl.function.Function3;
 import org.apache.aries.component.dsl.function.Function5;
 import org.apache.aries.component.dsl.function.Function7;
-import org.apache.aries.component.dsl.internal.BundleContextOSGiImpl;
-import org.apache.aries.component.dsl.internal.BundleOSGi;
-import org.apache.aries.component.dsl.internal.ChangeContextOSGiImpl;
-import org.apache.aries.component.dsl.internal.ConcurrentDoublyLinkedList;
-import org.apache.aries.component.dsl.internal.ConfigurationsOSGiImpl;
-import org.apache.aries.component.dsl.internal.AllOSGi;
-import org.apache.aries.component.dsl.internal.IgnoreImpl;
-import org.apache.aries.component.dsl.internal.JustOSGiImpl;
-import org.apache.aries.component.dsl.internal.OSGiImpl;
-import org.apache.aries.component.dsl.internal.UpdateSupport;
 import org.osgi.framework.Bundle;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.ServiceFactory;
@@ -76,13 +59,12 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 
 /**
  * @author Carlos Sierra Andrés
  */
 public interface OSGi<T> extends OSGiRunnable<T> {
-	OSGiResult NOOP = () -> {};
+	OSGiResult NOOP = new OSGiResultImpl(() -> {}, () -> {});
 
 	@SafeVarargs
 	static <T> OSGi<T> all(OSGi<T> ... programs) {
@@ -221,11 +203,12 @@ public interface OSGi<T> extends OSGiRunnable<T> {
 			() -> effect.getOnIncoming().accept(null),
 			NOOP,
 			NOOP,
-			() -> effect.getOnLeaving().accept(null));
+			() -> effect.getOnLeaving().accept(null),
+			NOOP);
 	}
 
 	static OSGi<Void> effects(Runnable onAdding, Runnable onRemoving) {
-		return new EffectsOSGi(onAdding, NOOP, NOOP, onRemoving);
+		return new EffectsOSGi(onAdding, NOOP, NOOP, onRemoving, NOOP);
 	}
 
 	static OSGi<Void> effects(
@@ -233,7 +216,15 @@ public interface OSGi<T> extends OSGiRunnable<T> {
 		Runnable onRemovingBefore, Runnable onRemovingAfter) {
 
 		return new EffectsOSGi(
-			onAddingBefore, onAddingAfter, onRemovingBefore, onRemovingAfter);
+			onAddingBefore, onAddingAfter, onRemovingBefore, onRemovingAfter, NOOP);
+	}
+
+	static OSGi<Void> effects(
+		Runnable onAddingBefore, Runnable onAddingAfter,
+		Runnable onRemovingBefore, Runnable onRemovingAfter, Runnable onUpdate) {
+
+		return new EffectsOSGi(
+			onAddingBefore, onAddingAfter, onRemovingBefore, onRemovingAfter, onUpdate);
 	}
 
 	static <T> OSGi<T> fromOsgiRunnable(OSGiRunnable<T> runnable) {
@@ -280,7 +271,7 @@ public interface OSGi<T> extends OSGiRunnable<T> {
 		return program.transform(op -> {
 			AtomicInteger count = new AtomicInteger();
 
-			AtomicReference<Runnable> terminator = new AtomicReference<>();
+			AtomicReference<OSGiResult> terminator = new AtomicReference<>();
 
 			return t -> {
 				if (count.getAndIncrement() == 0) {
@@ -288,16 +279,18 @@ public interface OSGi<T> extends OSGiRunnable<T> {
 						() -> terminator.set(op.apply(t)));
 				}
 
-				return () -> {
-					if (count.decrementAndGet() == 0) {
-						UpdateSupport.deferTermination(() -> {
-							Runnable runnable = terminator.getAndSet(NOOP);
+				return new OSGiResultImpl(
+					() -> {
+						if (count.decrementAndGet() == 0) {
+							UpdateSupport.deferTermination(() -> {
+								Runnable runnable = terminator.getAndSet(NOOP);
 
-							runnable.run();
-						});
-					}
-
-				};
+								runnable.run();
+							});
+						}
+					},
+					() -> terminator.get().update()
+				);
 			};
 		});
 	}
@@ -490,7 +483,7 @@ public interface OSGi<T> extends OSGiRunnable<T> {
 		return fromOsgiRunnable((bundleContext, op) -> {
 			ConcurrentDoublyLinkedList<T> identities = new ConcurrentDoublyLinkedList<>();
 			ConcurrentDoublyLinkedList<Function<T,S>> functions = new ConcurrentDoublyLinkedList<>();
-			IdentityHashMap<T, IdentityHashMap<Function<T, S>, Runnable>>
+			IdentityHashMap<T, IdentityHashMap<Function<T, S>, OSGiResult>>
 				terminators = new IdentityHashMap<>();
 
 			OSGiResult funRun = fun.run(
@@ -500,23 +493,27 @@ public interface OSGi<T> extends OSGiRunnable<T> {
 						ConcurrentDoublyLinkedList.Node node = functions.addLast(f);
 
 						for (T t : identities) {
-							IdentityHashMap<Function<T, S>, Runnable> terminatorMap =
+							IdentityHashMap<Function<T, S>, OSGiResult> terminatorMap =
 								terminators.computeIfAbsent(
 									t, __ -> new IdentityHashMap<>());
 							terminatorMap.put(f, op.apply(f.apply(t)));
 						}
 
-						return () -> {
-							synchronized (identities) {
-								node.remove();
+						return new OSGiResultImpl(
+							() -> {
+								synchronized (identities) {
+									node.remove();
 
-								identities.forEach(t -> {
-									Runnable terminator = terminators.get(t).remove(f);
-
-									terminator.run();
-								});
-							}
-						};
+									identities.forEach(
+										t -> terminators.get(t).remove(f).close());
+								}
+							},
+							() -> {
+								synchronized (identities) {
+									identities.forEach(
+										t -> terminators.get(t).get(f).update());
+								}
+							});
 					}
 				}
 			);
@@ -528,32 +525,31 @@ public interface OSGi<T> extends OSGiRunnable<T> {
 						ConcurrentDoublyLinkedList.Node node = identities.addLast(t);
 
 						for (Function<T, S> f : functions) {
-							IdentityHashMap<Function<T, S>, Runnable> terminatorMap =
+							IdentityHashMap<Function<T, S>, OSGiResult> terminatorMap =
 								terminators.computeIfAbsent(
 									t, __ -> new IdentityHashMap<>());
 							terminatorMap.put(f, op.apply(f.apply(t)));
 						}
 
-						return () -> {
-							synchronized (identities) {
-								node.remove();
+						return new OSGiResultImpl(
+							() -> {
+								synchronized (identities) {
+									node.remove();
 
-								functions.forEach(f -> {
-									Runnable terminator = terminators.get(t).remove(f);
-
-									terminator.run();
-								});
+									functions.forEach(f -> terminators.get(t).remove(f).close());
+								}
+							},
+							() -> {
+								synchronized (identities) {
+									functions.forEach(f -> terminators.get(t).remove(f).update());
+								}
 							}
-						};
+						);
 					}
 				}
 			);
 
-			return () -> {
-				myRun.close();
-
-				funRun.close();
-			};
+			return new AggregateOSGiResult(myRun, funRun);
 		});
 	}
 
@@ -567,21 +563,25 @@ public interface OSGi<T> extends OSGiRunnable<T> {
 
 			OSGiResult result = run(
 				bundleContext,
-				t -> chooser.apply(t).run(
-                    bundleContext,
-                    b -> {
-                        if (b) {
-                            return thenPad.publish(t);
-                        } else {
-                            return elsePad.publish(t);
-                        }
-                    }
-                ));
-			return () -> {
-				thenPad.close();
-				elsePad.close();
-				result.close();
-			};
+				t -> {
+					AtomicReference<OSGiResult> OSGiResult = new AtomicReference<>(NOOP);
+
+					return new OSGiResultImpl(
+						() -> chooser.apply(t).run(bundleContext,
+						b -> {
+							if (b) {
+								OSGiResult.set(thenPad.publish(t));
+							} else {
+								OSGiResult.set(elsePad.publish(t));
+							}
+
+							return OSGiResult.get();
+						}
+					),
+					() -> OSGiResult.get().update());
+				});
+
+			return new AggregateOSGiResult(thenPad, result);
 		});
 	}
 
@@ -592,13 +592,22 @@ public interface OSGi<T> extends OSGiRunnable<T> {
 	default OSGi<T> effects(
 		Consumer<? super T> onAdded, Consumer<? super T> onRemoved) {
 
-		return effects(onAdded, __ -> {}, __ -> {}, onRemoved);
+		return effects(onAdded, __ -> {}, __ -> {}, onRemoved, __ -> {});
 	}
 
 	default OSGi<T> effects(
 		Consumer<? super T> onAddedBefore, Consumer<? super T> onAddedAfter,
 		Consumer<? super T> onRemovedBefore,
 		Consumer<? super T> onRemovedAfter) {
+
+		return effects(
+			onAddedBefore, onAddedAfter, onRemovedBefore, onRemovedAfter, __ -> {});
+	}
+
+	default OSGi<T> effects(
+		Consumer<? super T> onAddedBefore, Consumer<? super T> onAddedAfter,
+		Consumer<? super T> onRemovedBefore,
+		Consumer<? super T> onRemovedAfter, Consumer<? super T> onUpdate) {
 
 		return fromOsgiRunnable((bundleContext, op) ->
 			run(
@@ -607,41 +616,51 @@ public interface OSGi<T> extends OSGiRunnable<T> {
 					onAddedBefore.accept(t);
 
 					try {
-						Runnable terminator = op.publish(t);
+						OSGiResult terminator = op.publish(t);
 
-						OSGiResult result = () -> {
-							try {
-								onRemovedBefore.accept(t);
-							}
-							catch (Exception e) {
-								//TODO: logging
-							}
+						OSGiResult OSGiResult = new OSGiResultImpl(
+							() -> {
+								try {
+									onRemovedBefore.accept(t);
+								}
+								catch (Exception e) {
+									//TODO: logging
+								}
 
-							try {
-								terminator.run();
-							}
-							catch (Exception e) {
-								//TODO: logging
-							}
+								try {
+									terminator.run();
+								}
+								catch (Exception e) {
+									//TODO: logging
+								}
 
-							try {
-								onRemovedAfter.accept(t);
+								try {
+									onRemovedAfter.accept(t);
+								}
+								catch (Exception e) {
+									//TODO: logging
+								}
+							},
+							() -> {
+								try {
+									onUpdate.accept(t);
+								}
+								catch (Exception e) {
+									//TODO: logging
+								}
 							}
-							catch (Exception e) {
-								//TODO: logging
-							}
-						};
+						);
 
 						try {
 							onAddedAfter.accept(t);
 						}
 						catch (Exception e) {
-							result.run();
+							OSGiResult.run();
 
 							throw e;
 						}
 
-						return result;
+						return OSGiResult;
 					}
 					catch (Exception e) {
 						try {
@@ -679,8 +698,7 @@ public interface OSGi<T> extends OSGiRunnable<T> {
 
 	default <S> OSGi<S> flatMap(Function<? super T, OSGi<? extends S>> fun) {
 		return fromOsgiRunnable((bundleContext, op) ->
-			run(bundleContext, t -> fun.apply(t).run(bundleContext, op))
-		);
+			run(bundleContext, t -> fun.apply(t).run(bundleContext, op)));
 	}
 
 	default OSGi<Void> foreach(Consumer<? super T> onAdded) {
@@ -748,11 +766,17 @@ public interface OSGi<T> extends OSGiRunnable<T> {
 				)
 			);
 
-			return () -> {
-				pads.values().forEach(Pad::close);
+			return new OSGiResultImpl(
+				() -> {
+					pads.values().forEach(Pad::close);
 
-				result.close();
-			};
+					result.close();
+				},
+				() -> {
+					pads.values().forEach(Pad::update);
+
+					result.update();
+				});
 		});
 	}
 

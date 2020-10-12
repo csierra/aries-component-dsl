@@ -25,6 +25,24 @@ public interface OSGiResult extends AutoCloseable, Runnable {
 	@Override
 	public void close();
 
+	public default void update() {
+
+	}
+
+	public static OSGiResult updatable(Runnable onClose, Runnable onUpdate) {
+		return new OSGiResult() {
+			@Override
+			public void close() {
+				onClose.run();
+			}
+
+			@Override
+			public void update() {
+				onUpdate.run();
+			}
+		};
+	}
+
 	default void run() {
 		close();
 	}

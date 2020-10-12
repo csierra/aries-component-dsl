@@ -17,14 +17,13 @@
 
 package org.apache.aries.component.dsl.internal;
 
-import org.apache.aries.component.dsl.OSGi;
-
 /**
  * @author Carlos Sierra Andrés
  */
 public class NothingOSGiImpl<S> extends OSGiImpl<S> {
 
 	public NothingOSGiImpl() {
-		super((bundleContext, __) -> new OSGiResultImpl(OSGi.NOOP));
+		super((bundleContext, __) -> NOOP);
 	}
+
 }

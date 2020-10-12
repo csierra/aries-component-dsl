@@ -17,6 +17,7 @@
 
 package org.apache.aries.component.dsl.internal;
 
+import org.apache.aries.component.dsl.OSGiResult;
 import org.osgi.framework.Bundle;
 import org.osgi.framework.BundleEvent;
 import org.osgi.util.tracker.BundleTracker;
@@ -29,13 +30,13 @@ public class BundleOSGi extends OSGiImpl<Bundle> {
 
 	public BundleOSGi(int stateMask) {
 		super((bundleContext, op) -> {
-			BundleTracker<Runnable> bundleTracker =
+			BundleTracker<OSGiResult> bundleTracker =
 				new BundleTracker<>(
 					bundleContext, stateMask,
-					new BundleTrackerCustomizer<Runnable>() {
+					new BundleTrackerCustomizer<OSGiResult>() {
 
 						@Override
-						public Runnable addingBundle(
+						public OSGiResult addingBundle(
 							Bundle bundle, BundleEvent bundleEvent) {
 
 							return op.apply(bundle);
@@ -44,22 +45,26 @@ public class BundleOSGi extends OSGiImpl<Bundle> {
 						@Override
 						public void modifiedBundle(
 							Bundle bundle, BundleEvent bundleEvent,
-							Runnable runnable) {
+							OSGiResult result) {
 
+							result.update();
 						}
 
 						@Override
 						public void removedBundle(
 							Bundle bundle, BundleEvent bundleEvent,
-							Runnable runnable) {
+							OSGiResult result) {
 
-							runnable.run();
+							result.run();
 						}
 					});
 
 			bundleTracker.open();
 
-			return new OSGiResultImpl(bundleTracker::close);
+			return new OSGiResultImpl(
+				bundleTracker::close,
+				() -> bundleTracker.getTracked().values().forEach(OSGiResult::update)
+			);
 		});
 
 	}

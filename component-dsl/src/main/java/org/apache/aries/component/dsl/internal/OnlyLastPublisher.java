@@ -44,7 +44,7 @@ public class OnlyLastPublisher<T> implements Publisher<T> {
     private final Publisher<? super T> _op;
     private AtomicLong _counter = new AtomicLong();
     private Supplier<T> _injectOnLeave;
-    private Runnable _terminator;
+    private OSGiResult _terminator;
 
     @Override
     public synchronized OSGiResult publish(T t) {
@@ -58,15 +58,22 @@ public class OnlyLastPublisher<T> implements Publisher<T> {
         else {
             _counter.incrementAndGet();
 
-            return () -> {
-                synchronized (this) {
-                    _terminator.run();
+            return new OSGiResultImpl(
+                () -> {
+                    synchronized (this) {
+                        _terminator.run();
 
-                    if (_counter.decrementAndGet() > 0) {
-                        _terminator = _op.publish(_injectOnLeave.get());
+                        if (_counter.decrementAndGet() > 0) {
+                            _terminator = _op.publish(_injectOnLeave.get());
+                        }
+                    }
+                },
+                () -> {
+                    synchronized (this) {
+                        _terminator.update();
                     }
                 }
-            };
+            );
         }
     }
 

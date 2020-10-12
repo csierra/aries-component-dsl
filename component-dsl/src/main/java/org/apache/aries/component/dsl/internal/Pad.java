@@ -22,7 +22,6 @@ import org.apache.aries.component.dsl.OSGiResult;
 import org.apache.aries.component.dsl.Publisher;
 import org.osgi.framework.BundleContext;
 
-import java.io.Closeable;
 import java.util.function.Function;
 
 import static org.apache.aries.component.dsl.OSGi.NOOP;
@@ -30,7 +29,7 @@ import static org.apache.aries.component.dsl.OSGi.NOOP;
 /**
  * @author Carlos Sierra Andrés
  */
-public class Pad<T, S> implements Publisher<T>, Closeable {
+public class Pad<T, S> implements Publisher<T>, OSGiResult {
 
     public Pad(
         BundleContext bundleContext,
@@ -52,6 +51,11 @@ public class Pad<T, S> implements Publisher<T>, Closeable {
     @Override
     public void close() {
         _result.close();
+    }
+
+    @Override
+    public void update() {
+        _result.update();
     }
 
     @Override

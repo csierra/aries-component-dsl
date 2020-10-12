@@ -42,7 +42,7 @@ public class DistributeOSGiImpl<T, S> extends OSGiImpl<S> {
             OSGiResult result = operation.run(
                 bundleContext,
                 t -> {
-                    List<Runnable> terminators = new ArrayList<>(funs.length);
+                    List<OSGiResult> terminators = new ArrayList<>(funs.length);
 
                     int i = 0;
 
@@ -57,25 +57,39 @@ public class DistributeOSGiImpl<T, S> extends OSGiImpl<S> {
                         throw e;
                     }
 
-                    return () -> cleanUp(terminators);
+                    return new OSGiResultImpl(
+                        () -> cleanUp(terminators),
+                        () -> terminators.forEach(OSGiResult::update)
+                    );
                 });
 
-            return () -> {
-                result.close();
+            return new OSGiResultImpl(
+                () -> {
+                    result.close();
 
-                for (Pad<T, S> pad : pads) {
-                    try {
-                        pad.close();
+                    for (Pad<T, S> pad : pads) {
+                        try {
+                            pad.close();
+                        } catch (Exception e) {
+                        }
                     }
-                    catch (Exception e) {
+                },
+                () -> {
+                    for (Pad<T, S> pad : pads) {
+                        try {
+                            pad.update();
+                        } catch (Exception e) {
+                        }
                     }
+
+                    result.update();
                 }
-            };
+            );
         });
     }
 
-    private static void cleanUp(List<Runnable> terminators) {
-        ListIterator<Runnable> iterator =
+    private static void cleanUp(List<OSGiResult> terminators) {
+        ListIterator<OSGiResult> iterator =
             terminators.listIterator(terminators.size());
 
         while (iterator.hasPrevious()) {

@@ -50,7 +50,7 @@ public class CoalesceOSGiImpl<T> extends OSGiImpl<T> {
 
                 publishers[i] = t -> {
                     AtomicReference<OSGiResult> result =
-                        new AtomicReference<>();
+                        new AtomicReference<>(NOOP);
 
                     synchronized (initialized) {
                         atomicInteger.incrementAndGet();
@@ -70,7 +70,8 @@ public class CoalesceOSGiImpl<T> extends OSGiImpl<T> {
                             () -> result.set(op.publish(t)));
                     }
 
-                    return () -> UpdateSupport.deferTermination(() -> {
+                    return new OSGiResultImpl(
+                        () -> UpdateSupport.deferTermination(() -> {
                         synchronized (initialized) {
                             result.get().close();
 
@@ -93,7 +94,8 @@ public class CoalesceOSGiImpl<T> extends OSGiImpl<T> {
                                 }
                             }
                         }
-                    });
+                    }),
+                    () -> result.get().update());
                 };
             }
 
@@ -122,6 +124,11 @@ public class CoalesceOSGiImpl<T> extends OSGiImpl<T> {
                         for (int i = 0; i <= index.get(); i++) {
                             results[i].close();
                         }
+                    }
+                },
+                () -> {
+                    synchronized (initialized) {
+                        results[index.get()].update();
                     }
                 }
             );
