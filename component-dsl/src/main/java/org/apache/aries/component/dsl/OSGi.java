@@ -271,25 +271,25 @@ public interface OSGi<T> extends OSGiRunnable<T> {
 		return program.transform(op -> {
 			AtomicInteger count = new AtomicInteger();
 
-			AtomicReference<OSGiResult> terminator = new AtomicReference<>();
+			AtomicReference<OSGiResult> result = new AtomicReference<>(NOOP);
 
 			return t -> {
 				if (count.getAndIncrement() == 0) {
 					UpdateSupport.deferPublication(
-						() -> terminator.set(op.apply(t)));
+						() -> result.set(op.apply(t)));
 				}
 
 				return new OSGiResultImpl(
 					() -> {
 						if (count.decrementAndGet() == 0) {
 							UpdateSupport.deferTermination(() -> {
-								Runnable runnable = terminator.getAndSet(NOOP);
+								Runnable runnable = result.getAndSet(NOOP);
 
 								runnable.run();
 							});
 						}
 					},
-					() -> terminator.get().update()
+					() -> result.get().update()
 				);
 			};
 		});
@@ -402,7 +402,7 @@ public interface OSGi<T> extends OSGiRunnable<T> {
 				return
 					onClose(() -> bundleContext.ungetService(
 						serviceReference.getServiceReference())).
-						then(
+						 then(
 							just(service));
 			});
 	}
@@ -438,7 +438,7 @@ public interface OSGi<T> extends OSGiRunnable<T> {
 		return new ServiceReferenceOSGi<>(filterString, clazz, onModified);
 	}
 
-	static <T> OSGi<CachingServiceReference<T>> serviceReferences(
+	static <T> UpdatableOSGi<CachingServiceReference<T>> serviceReferences(
 		Class<T> clazz,
 		Refresher<? super CachingServiceReference<T>> onModified) {
 
@@ -596,6 +596,11 @@ public interface OSGi<T> extends OSGiRunnable<T> {
 	}
 
 	default OSGi<T> effects(
+		Consumer<? super T> onAdded, Consumer<? super T> onRemoved, UpdateQuery onUpdated) {
+
+		return effects(onAdded, __ -> {}, __ -> {}, onRemoved, onUpdated);
+	}
+	default OSGi<T> effects(
 		Consumer<? super T> onAddedBefore, Consumer<? super T> onAddedAfter,
 		Consumer<? super T> onRemovedBefore,
 		Consumer<? super T> onRemovedAfter) {
@@ -607,7 +612,7 @@ public interface OSGi<T> extends OSGiRunnable<T> {
 	default OSGi<T> effects(
 		Consumer<? super T> onAddedBefore, Consumer<? super T> onAddedAfter,
 		Consumer<? super T> onRemovedBefore,
-		Consumer<? super T> onRemovedAfter, Consumer<? super T> onUpdate) {
+		Consumer<? super T> onRemovedAfter, UpdateQuery updateQuery) {
 
 		return fromOsgiRunnable((bundleContext, op) ->
 			run(
@@ -616,7 +621,7 @@ public interface OSGi<T> extends OSGiRunnable<T> {
 					onAddedBefore.accept(t);
 
 					try {
-						OSGiResult terminator = op.publish(t);
+						OSGiResult result = op.publish(t);
 
 						OSGiResult OSGiResult = new OSGiResultImpl(
 							() -> {
@@ -628,7 +633,7 @@ public interface OSGi<T> extends OSGiRunnable<T> {
 								}
 
 								try {
-									terminator.run();
+									result.run();
 								}
 								catch (Exception e) {
 									//TODO: logging
@@ -644,6 +649,8 @@ public interface OSGi<T> extends OSGiRunnable<T> {
 							() -> {
 								try {
 									onUpdate.accept(t);
+
+									result.update();
 								}
 								catch (Exception e) {
 									//TODO: logging
@@ -682,18 +689,7 @@ public interface OSGi<T> extends OSGiRunnable<T> {
 	}
 
 	default OSGi<T> filter(Predicate<T> predicate) {
-		return fromOsgiRunnable((bundleContext, op) ->
-			run(
-				bundleContext,
-				t -> {
-					if (predicate.test(t)) {
-						return op.apply(t);
-					}
-					else {
-						return NOOP;
-					}
-				}
-			));
+		return flatMap(t -> predicate.test(t) ? just(t) : nothing());
 	}
 
 	default <S> OSGi<S> flatMap(Function<? super T, OSGi<? extends S>> fun) {

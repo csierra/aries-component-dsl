@@ -17,21 +17,19 @@
 
 package org.apache.aries.component.dsl.internal;
 
-import org.apache.aries.component.dsl.OSGiResult;
-import org.apache.aries.component.dsl.Refresher;
-import org.apache.aries.component.dsl.CachingServiceReference;
-import org.apache.aries.component.dsl.Publisher;
+import org.apache.aries.component.dsl.*;
 import org.osgi.framework.ServiceReference;
 import org.osgi.util.tracker.ServiceTracker;
 import org.osgi.util.tracker.ServiceTrackerCustomizer;
 
 import java.util.Arrays;
+import java.util.function.BiFunction;
 
 /**
  * @author Carlos Sierra Andrés
  */
 public class ServiceReferenceOSGi<T>
-	extends OSGiImpl<CachingServiceReference<T>> {
+	extends OSGiImpl<CachingServiceReference<T>> implements UpdatableOSGi<T> {
 
 	public ServiceReferenceOSGi(
 		String filterString, Class<T> clazz) {
@@ -60,6 +58,11 @@ public class ServiceReferenceOSGi<T>
 					t -> t.result.update()
 				));
 		});
+	}
+
+	@Override
+	public <S> OSGi<S> flatMap(BiFunction<T, UpdateSelector<S>, OSGi<S>> fun) {
+		return null;
 	}
 
 	private static class DefaultServiceTrackerCustomizer<T>

@@ -33,7 +33,7 @@ public class EffectsOSGi extends OSGiImpl<Void> {
             onAddingBefore.run();
 
             try {
-                Runnable terminator = op.publish(null);
+                OSGiResult terminator = op.publish(null);
 
                 OSGiResult result = new OSGiResultImpl(
                     () -> {
@@ -61,6 +61,8 @@ public class EffectsOSGi extends OSGiImpl<Void> {
                     () -> {
                         try {
                             onUpdate.run();
+
+                            terminator.update();
                         }
                         catch (Exception e) {
                             //TODO: logging

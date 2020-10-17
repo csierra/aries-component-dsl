@@ -21,8 +21,7 @@
 	<parent>
 		<groupId>org.apache.aries.component-dsl</groupId>
 		<artifactId>org.apache.aries.component-dsl.parent</artifactId>
-		<version>1.2.3-SNAPSHOT</version>
-		<relativePath>..</relativePath>
+		<version>1.3.0-SNAPSHOT</version>
 	</parent>
 
 	<artifactId>org.apache.aries.component-dsl.itests-run</artifactId>
@@ -77,12 +76,12 @@
 		<dependency>
 			<groupId>org.apache.aries.component-dsl</groupId>
 			<artifactId>org.apache.aries.component-dsl.itests</artifactId>
-			<version>1.2.3-SNAPSHOT</version>
+			<version>1.3.0-SNAPSHOT</version>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.aries.component-dsl</groupId>
 			<artifactId>org.apache.aries.component-dsl.component-dsl</artifactId>
-			<version>1.2.3-SNAPSHOT</version>
+			<version>1.3.0-SNAPSHOT</version>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.felix</groupId>
